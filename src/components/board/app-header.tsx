@@ -15,8 +15,6 @@ import {
     TooltipTrigger
 } from '@/components/ui/tooltip'
 
-import { siteConfig } from '@/constants/site'
-
 interface AppHeaderProps {
     viewer?: Member
     projects?: ProjectSummary[]
@@ -40,7 +38,7 @@ export const AppHeader: FC<AppHeaderProps> = ({
                 <Logo className='size-7' />
 
                 <span className='hidden font-heading text-lg font-bold tracking-tight text-foreground sm:inline'>
-                    {siteConfig.name}
+                    Tasklane — Project Tracker (Pi)
                 </span>
             </Link>
 
