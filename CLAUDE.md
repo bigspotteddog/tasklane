@@ -57,9 +57,12 @@ If a user's request genuinely requires changing any of the protected entries, st
 - **Bundler:** Turbopack (dev only — `build` runs the default production build)
 - **Runtime:** React 19
 - **Styling:** Tailwind CSS v4 + `tw-animate-css`
-- **UI primitives:** shadcn/ui (style: `base-nova`, base color: `neutral`)
+- **UI primitives:** shadcn/ui (style: `base-nova`, base color: `neutral`) on top of `@base-ui/react`
 - **Icons:** lucide-react
 - **Class utilities:** `clsx` + `tailwind-merge` (combined as `cn()` in `@/lib/utils`)
+- **Database:** the project's SQLite database over HTTP through `drizzle-orm/sqlite-proxy` (`src/db/client.ts`)
+- **Drag and drop:** `@dnd-kit/core` + `@dnd-kit/sortable`
+- **Toasts:** `sonner` (mounted once in `_app.tsx`, call `toast()` anywhere on the client)
 - **Language:** TypeScript
 
 ---
@@ -69,16 +72,33 @@ If a user's request genuinely requires changing any of the protected entries, st
 ```
 src/
 ├── pages/          Next.js pages (_app, _document, index, 404, 500, ...)
+├── pages/api/      API routes (board, issues, members)
 ├── components/
 │   ├── ui/         shadcn-generated components
-│   ├── generals/   shared layout/utility components
-│   └── landing/    page-specific composition components (create as needed)
+│   ├── generals/   shared layout/utility components (layout, seo, logo)
+│   └── board/      the issue board: columns, cards, dialogs, filters
+├── db/             drizzle schema and the database client (server only)
+├── server/         server-only queries, validation and API helpers
+├── hooks/          client hooks (use-board keeps board state in sync)
 ├── lib/            small utilities (utils.ts holds the `cn` helper)
-├── constants/      static configuration
+├── constants/      static configuration (board.ts holds statuses, types, priorities)
 ├── styles/         globals.css
 └── types/          shared TypeScript types
 public/             static assets
 ```
+
+## Board App
+
+The site is Tasklane, a lightweight issue board. One page (`src/pages/index.tsx`) loads the board in `getServerSideProps` and hands it to `BoardApp`.
+
+- **Data:** two tables, `issues` and `members`. Issue keys are `TL-<number>` (`ISSUE_KEY_PREFIX` in `src/constants/board.ts`); `number` is assigned on insert as `MAX(number) + 1`. `labels` is a JSON array of strings, `due_date` is `YYYY-MM-DD`, and `status`, `type` and `priority` are plain text validated against `src/constants/board.ts` (no CHECK constraints, so adding a column means adding a status there).
+- **Columns:** `STATUSES` in `src/constants/board.ts` is the single source for column order, labels and colors.
+- **Ordering:** `position` is a REAL. Moves go through `POST /api/issues/[id]/move` with `{ status, afterId }`; the server places the issue right after `afterId` (or at the top) and renumbers a column only when two positions get too close.
+- **Server code:** queries live in `src/server/board.ts`, input checks in `src/server/validate.ts`. API routes stay thin: parse, call, respond through `src/server/http.ts`.
+- **Client state:** `useBoard` applies every change optimistically, rolls back and shows a toast when a request fails, and refreshes from `/api/board` every 30 seconds and on window focus (paused while dragging or while a save is in flight).
+- **Deep links:** an open issue is reflected in the URL as `?issue=TL-12` with shallow routing.
+- **Dates on cards:** anything that depends on today's date comes from `useToday()`, which is `null` during server render, so cards never cause hydration mismatches.
+- **Inline editing:** issue titles carry `data-mdlfy-cms="issues:<id>:title"` and member names `data-mdlfy-cms="members:<id>:name"` wherever they render as visible text. Keep it on any new place that shows them.
 
 ## Imports
 
@@ -144,6 +164,8 @@ The CLI installs the component into `src/components/ui/` based on the configurat
 **Never run `shadcn init` or `shadcn create`** — the project is already initialized with its shadcn base CSS inlined into `src/styles/globals.css` (see the `/* ejected from shadcn@... */` block). Init would re-insert `@import "shadcn/tailwind.css"`, which does not resolve in this environment and breaks the build. Never add that import manually either.
 
 After generation, adjust formatting to match the rules above (4-space indent, single quotes, no semicolons).
+
+The CLI may write `import { cn } from "cn"` and add the `cn` npm package. Point that import at `@/lib/utils` and uninstall `cn`. Also check that `@base-ui/react` and `class-variance-authority` ended up in `package.json`; install them if the CLI skipped them.
 
 ### Custom components
 

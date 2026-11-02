@@ -1,20 +1,34 @@
 import type { FC, ReactNode } from 'react'
+import type { GetServerSideProps } from 'next'
+import type { BoardData } from '@/types'
 
 import { Seo } from '@/components/generals/seo'
-import { Layout } from '@/components/generals/layout'
-import { siteConfig } from '@/constants/site'
+import { BoardApp } from '@/components/board/board-app'
+import { BoardUnavailable } from '@/components/board/board-unavailable'
+import { getBoard } from '@/server/board'
 
-const Home: FC = (): ReactNode => {
+interface HomeProps {
+    board: BoardData | null
+}
+
+export const getServerSideProps: GetServerSideProps<HomeProps> = async () => {
+    try {
+        const board = await getBoard()
+        return { props: { board } }
+    }
+    catch (error) {
+        console.error(`[board] The board could not be loaded: ${error instanceof Error ? error.message : String(error)}`)
+        return { props: { board: null } }
+    }
+}
+
+const Home: FC<HomeProps> = ({ board }): ReactNode => {
     return (
-        <Layout>
+        <>
             <Seo />
 
-            <div className='min-h-screen flex items-center justify-center bg-zinc-50 px-6'>
-                <p className='text-muted-foreground text-sm text-center max-w-[320px] leading-relaxed'>
-                    {siteConfig.placeholder}
-                </p>
-            </div>
-        </Layout>
+            {board ? <BoardApp initialBoard={board} /> : <BoardUnavailable />}
+        </>
     )
 }
 

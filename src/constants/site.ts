@@ -2,8 +2,7 @@ import type { SiteConfig } from '@/types'
 import { getOrigin } from '@/lib/window'
 
 export const siteConfig: SiteConfig = {
-    name: 'Site',
-    description: 'Describe what you want. AI builds it live.',
-    placeholder: 'Your new site will appear right here. Just ask Modulify to generate anything you can describe.',
+    name: 'Tasklane',
+    description: 'A lightweight issue board for small teams. Plan in the backlog, move work through To Do, In Progress and Review, and ship it to Done.',
     url: getOrigin()
 }
