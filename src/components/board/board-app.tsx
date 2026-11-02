@@ -3,7 +3,8 @@ import type {
     BoardData,
     BoardFilters,
     Issue,
-    IssueStatus
+    IssueStatus,
+    Member
 } from '@/types'
 import type { BoardStats } from '@/components/board/board-toolbar'
 
@@ -34,11 +35,12 @@ import { POSITION_GAP, STATUS_IDS } from '@/constants/board'
 
 interface BoardAppProps {
     initialBoard: BoardData
+    viewer: Member
 }
 
 const SHORTCUT_IGNORE = 'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
 
-export const BoardApp: FC<BoardAppProps> = ({ initialBoard }): ReactNode => {
+export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewer }): ReactNode => {
     const router = useRouter()
     const today = useToday()
     const searchRef = useRef<HTMLInputElement>(null)
@@ -64,6 +66,7 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard }): ReactNode => {
     const [selectedId, setSelectedId] = useState<string | null>(null)
 
     const memberMap = useMemo(() => new Map(members.map((member) => [member.id, member])), [members])
+    const viewer = memberMap.get(initialViewer.id) ?? initialViewer
     const visibleIssues = useMemo(() => issues.filter((issue) => matchesFilters(issue, filters, memberMap)), [issues, filters, memberMap])
     const columns = useMemo(() => groupByStatus(visibleIssues), [visibleIssues])
     const filtered = hasActiveFilters(filters)
@@ -216,7 +219,7 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard }): ReactNode => {
     }, [filters, memberMap, announceHidden, showIssue])
 
     return (
-        <Layout header={<AppHeader onCreate={() => openCreate()} onOpenTeam={() => setTeamOpen(true)} />}>
+        <Layout header={<AppHeader viewer={viewer} onCreate={() => openCreate()} onOpenTeam={() => setTeamOpen(true)} />}>
             <BoardToolbar
                 filters={filters}
                 members={members}
@@ -259,6 +262,7 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard }): ReactNode => {
 
             <TeamDialog
                 open={teamOpen}
+                viewerId={viewer.id}
                 members={members}
                 issues={issues}
                 onOpenChange={setTeamOpen}

@@ -114,6 +114,26 @@ const parseMemberName = (value: unknown): string => {
     return name
 }
 
+export const normalizeEmail = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+
+    const email = value.trim().toLowerCase()
+
+    if (email.length > 254 || !/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(email)) return null
+
+    return email
+}
+
+const parseOptionalEmail = (value: unknown): string | null => {
+    if (value === null || value === undefined || value === '') return null
+
+    const email = normalizeEmail(value)
+
+    if (!email) throw new ValidationError('Enter a valid email address, or leave it empty.')
+
+    return email
+}
+
 const parseColor = (value: unknown): string => {
     if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) {
         throw new ValidationError('Choose a valid color.')
@@ -177,7 +197,8 @@ export const parseMemberDraft = (body: unknown): MemberDraft => {
 
     return {
         name: parseMemberName(input.name),
-        color: parseColor(input.color)
+        color: parseColor(input.color),
+        email: parseOptionalEmail(input.email)
     }
 }
 
@@ -187,6 +208,7 @@ export const parseMemberPatch = (body: unknown): Partial<MemberDraft> => {
 
     if (has(input, 'name')) patch.name = parseMemberName(input.name)
     if (has(input, 'color')) patch.color = parseColor(input.color)
+    if (has(input, 'email')) patch.email = parseOptionalEmail(input.email)
 
     if (Object.keys(patch).length === 0) throw new ValidationError('There is nothing to update.')
 

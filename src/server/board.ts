@@ -19,7 +19,7 @@ import {
     sql
 } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { issues, members, timestampNow } from '@/db/schema'
+import { authSessions, issues, members, timestampNow } from '@/db/schema'
 import { cleanLabels } from '@/lib/labels'
 
 import {
@@ -66,11 +66,12 @@ const toIssue = (row: IssueRow): Issue => {
     }
 }
 
-const toMember = (row: MemberRow): Member => {
+export const toMember = (row: MemberRow): Member => {
     return {
         id: String(row.id),
         name: row.name ?? '',
         color: /^#[0-9a-f]{6}$/i.test(row.color ?? '') ? row.color : '#475569',
+        email: row.email ? String(row.email) : null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt
     }
@@ -202,16 +203,26 @@ export const deleteIssue = async (id: string): Promise<boolean> => {
 }
 
 export const createMember = async (draft: MemberDraft): Promise<Member> => {
-    const [row] = await db.insert(members).values({ name: draft.name, color: draft.color }).returning()
+    const [row] = await db.insert(members).values({ name: draft.name, color: draft.color, email: draft.email }).returning()
     return toMember(row)
 }
 
-export const updateMember = async (id: string, patch: Partial<MemberDraft>): Promise<Member | null> => {
+export const updateMember = async (id: string, patch: Partial<MemberDraft>, viewerId: string): Promise<Member | null> => {
+    const existing = await db.select({ email: members.email }).from(members).where(eq(members.id, id)).get()
+
+    if (!existing) return null
+
     const [row] = await db
         .update(members)
         .set({ ...patch, updatedAt: timestampNow })
         .where(eq(members.id, id))
         .returning()
+
+    const emailChanged = patch.email !== undefined && patch.email !== (existing.email ?? null)
+
+    if (row && emailChanged && id !== viewerId) {
+        await db.delete(authSessions).where(eq(authSessions.memberId, id))
+    }
 
     return row ? toMember(row) : null
 }

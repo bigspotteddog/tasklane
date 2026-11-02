@@ -91,14 +91,26 @@ public/             static assets
 
 The site is Tasklane, a lightweight issue board. One page (`src/pages/index.tsx`) loads the board in `getServerSideProps` and hands it to `BoardApp`.
 
-- **Data:** two tables, `issues` and `members`. Issue keys are `TL-<number>` (`ISSUE_KEY_PREFIX` in `src/constants/board.ts`); `number` is assigned on insert as `MAX(number) + 1`. `labels` is a JSON array of strings, `due_date` is `YYYY-MM-DD`, and `status`, `type` and `priority` are plain text validated against `src/constants/board.ts` (no CHECK constraints, so adding a column means adding a status there).
+- **Data:** two board tables, `issues` and `members` (plus `auth_sessions` and `auth_login_requests` for sign-in). Issue keys are `TL-<number>` (`ISSUE_KEY_PREFIX` in `src/constants/board.ts`); `number` is assigned on insert as `MAX(number) + 1`. `labels` is a JSON array of strings, `due_date` is `YYYY-MM-DD`, and `status`, `type` and `priority` are plain text validated against `src/constants/board.ts` (no CHECK constraints, so adding a column means adding a status there).
 - **Columns:** `STATUSES` in `src/constants/board.ts` is the single source for column order, labels and colors.
 - **Ordering:** `position` is a REAL. Moves go through `POST /api/issues/[id]/move` with `{ status, afterId }`; the server places the issue right after `afterId` (or at the top) and renumbers a column only when two positions get too close.
 - **Server code:** queries live in `src/server/board.ts`, input checks in `src/server/validate.ts`. API routes stay thin: parse, call, respond through `src/server/http.ts`.
 - **Client state:** `useBoard` applies every change optimistically, rolls back and shows a toast when a request fails, and refreshes from `/api/board` every 30 seconds and on window focus (paused while dragging or while a save is in flight).
 - **Deep links:** an open issue is reflected in the URL as `?issue=TL-12` with shallow routing.
 - **Dates on cards:** anything that depends on today's date comes from `useToday()`, which is `null` during server render, so cards never cause hydration mismatches.
-- **Inline editing:** issue titles carry `data-mdlfy-cms="issues:<id>:title"` and member names `data-mdlfy-cms="members:<id>:name"` wherever they render as visible text. Keep it on any new place that shows them.
+- **Inline editing:** issue titles carry `data-mdlfy-cms="issues:<id>:title"`, member names `data-mdlfy-cms="members:<id>:name"` and member emails `data-mdlfy-cms="members:<id>:email"` wherever they render as visible text. Keep it on any new place that shows them.
+
+## Sign-in (magic links)
+
+Only team members with an email on their `members` row can sign in. Everything lives in `src/server/auth.ts` (sessions, links, codes, limits) and `src/server/auth-email.ts` (the email, sent through `@/lib/modulify/email`).
+
+- **Flow:** `/sign-in` posts to `/api/auth/request`, which emails a one-time link (`/auth/verify?token=...`, confirmed with a button so mail scanners cannot use it up) plus a 6-digit code. Link and code both expire after 15 minutes and work once; a code allows 5 tries.
+- **Preview:** the editor preview only loads inside Modulify, so preview emails carry the code only. `isPreview` is `NODE_ENV !== 'production'`.
+- **First member:** while no member has an email, the first person to sign in from the preview becomes a member (state `setup`). On the live site that state is `closed`, so nobody can claim the board there.
+- **Sessions:** `auth_sessions` stores a SHA-256 hash of a random token; the browser holds the token in the HttpOnly cookie `tasklane_session` for 30 days, renewed when under 20 days remain. The preview cookie is `SameSite=None; Secure; Partitioned` because the preview runs in a frame; the live site uses `SameSite=Lax; Secure`.
+- **Protection:** pages call `getViewer()` in `getServerSideProps` and redirect to `/sign-in?next=...`; every API route starts with `requireViewer()`, which answers 401 and blocks cross-site writes. `apiRequest` sends the browser to sign-in on a 401. Validate any redirect target with `safeNextPath()`.
+- **Limits:** one email per address per minute, 5 per address and 12 per device per hour. Changing or clearing a teammate's email, or removing them, signs them out. Nobody can remove themselves or clear their own email.
+- **Link origin:** built from the `Host` header (falling back to `X-Forwarded-Host` only when `Host` looks internal), never from anything in the request body.
 
 ## Imports
 

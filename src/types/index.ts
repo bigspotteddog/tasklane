@@ -32,6 +32,7 @@ export type Member = {
     id: string
     name: string
     color: string
+    email: string | null
     createdAt: string
     updatedAt: string
 }
@@ -75,7 +76,10 @@ export type IssuePatch = Partial<Omit<IssueDraft, 'status'>>
 export type MemberDraft = {
     name: string
     color: string
+    email: string | null
 }
+
+export type SignInState = 'ready' | 'setup' | 'closed'
 
 export type BoardFilters = {
     search: string

@@ -15,7 +15,8 @@ export const members = sqliteTable('members', {
     name: text('name').notNull(),
     color: text('color').notNull().default('#4f46e5'),
     createdAt: text('created_at').notNull().default(timestampNow),
-    updatedAt: text('updated_at').notNull().default(timestampNow)
+    updatedAt: text('updated_at').notNull().default(timestampNow),
+    email: text('email').unique('members_email_unique')
 })
 
 export const issues = sqliteTable('issues', {
@@ -38,6 +39,37 @@ export const issues = sqliteTable('issues', {
     index('issues_assignee_idx').on(table.assigneeId)
 ])
 
+export const authSessions = sqliteTable('auth_sessions', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    memberId: text('member_id').notNull().references(() => members.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().default(timestampNow),
+    updatedAt: text('updated_at').notNull().default(timestampNow)
+}, (table) => [
+    index('auth_sessions_member_idx').on(table.memberId)
+])
+
+export const authLoginRequests = sqliteTable('auth_login_requests', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    email: text('email').notNull(),
+    memberId: text('member_id').references(() => members.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    nextPath: text('next_path').notNull().default('/'),
+    clientHash: text('client_hash'),
+    expiresAt: text('expires_at').notNull(),
+    usedAt: text('used_at'),
+    createdAt: text('created_at').notNull().default(timestampNow),
+    updatedAt: text('updated_at').notNull().default(timestampNow)
+}, (table) => [
+    index('auth_login_requests_email_idx').on(table.email, table.createdAt),
+    index('auth_login_requests_client_idx').on(table.clientHash, table.createdAt)
+])
+
 export type MemberRow = typeof members.$inferSelect
 
 export type IssueRow = typeof issues.$inferSelect
+
+export type LoginRequestRow = typeof authLoginRequests.$inferSelect
