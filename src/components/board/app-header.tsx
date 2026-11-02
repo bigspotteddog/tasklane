@@ -38,7 +38,7 @@ export const AppHeader: FC<AppHeaderProps> = ({
                 <Logo className='size-7' />
 
                 <span className='hidden font-heading text-lg font-bold tracking-tight text-foreground sm:inline'>
-                    Tasklane — Project Tracker
+                    Tasklane — Project Tracker (Pi)
                 </span>
             </Link>
 
