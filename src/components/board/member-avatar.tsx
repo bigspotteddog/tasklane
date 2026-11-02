@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { initials } from '@/lib/issues'
 
 interface MemberAvatarProps {
-    member?: Member | null
+    member?: Pick<Member, 'name' | 'color'> | null
     size?: 'xs' | 'sm' | 'md'
     className?: string
 }

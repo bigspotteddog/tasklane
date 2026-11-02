@@ -34,6 +34,11 @@ export const apiRequest = async <T>(url: string, options: RequestOptions = {}): 
             ? data.error
             : 'Something went wrong. Please try again.'
 
+        if (response.status === 401 && !url.startsWith('/api/auth/') && typeof window !== 'undefined') {
+            const next = `${window.location.pathname}${window.location.search}`
+            window.location.assign(`/sign-in${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`)
+        }
+
         throw new ApiError(message, response.status)
     }
 

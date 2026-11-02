@@ -1,8 +1,10 @@
 import type {
+    InviteDraft,
     IssueDraft,
     IssuePatch,
     IssueStatus,
-    MemberDraft
+    ProfileDraft,
+    ProjectDraft
 } from '@/types'
 
 import { cleanLabels } from '@/lib/labels'
@@ -11,6 +13,7 @@ import {
     ISSUE_TYPE_IDS,
     LIMITS,
     PRIORITY_IDS,
+    PROJECT_KEY_PATTERN,
     STATUS_IDS,
     UNASSIGNED
 } from '@/constants/board'
@@ -108,10 +111,20 @@ const parseDueDate = (value: unknown): string | null => {
 const parseMemberName = (value: unknown): string => {
     const name = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
 
-    if (!name) throw new ValidationError('Enter a name for the teammate.')
+    if (!name) throw new ValidationError('Enter a name.')
     if (name.length > LIMITS.memberName) throw new ValidationError(`Keep names under ${LIMITS.memberName} characters.`)
 
     return name
+}
+
+export const normalizeEmail = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+
+    const email = value.trim().toLowerCase()
+
+    if (email.length > 254 || !/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]{2,}$/.test(email)) return null
+
+    return email
 }
 
 const parseColor = (value: unknown): string => {
@@ -172,18 +185,97 @@ export const parseMove = (body: unknown): { status: IssueStatus, afterId: string
     return { status, afterId }
 }
 
-export const parseMemberDraft = (body: unknown): MemberDraft => {
+const parseProjectName = (value: unknown): string => {
+    const name = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+
+    if (!name) throw new ValidationError('Give the project a name.')
+    if (name.length > LIMITS.projectName) throw new ValidationError(`Keep the project name under ${LIMITS.projectName} characters.`)
+
+    return name
+}
+
+const parseProjectKey = (value: unknown): string => {
+    const key = typeof value === 'string' ? value.trim().toUpperCase() : ''
+
+    if (!PROJECT_KEY_PATTERN.test(key)) {
+        throw new ValidationError('The key must be 2 to 6 letters or numbers and start with a letter, like WEB or APP2.')
+    }
+
+    return key
+}
+
+const parseProjectDescription = (value: unknown): string => {
+    if (value === null || value === undefined) return ''
+    if (typeof value !== 'string') throw new ValidationError('The description must be text.')
+
+    const description = value.replace(/\s+/g, ' ').trim()
+
+    if (description.length > LIMITS.projectDescription) {
+        throw new ValidationError(`Keep the description under ${LIMITS.projectDescription} characters.`)
+    }
+
+    return description
+}
+
+const parseInviteRole = (value: unknown): InviteDraft['role'] => {
+    return parseEnum(value, ['admin', 'member'] as const, 'role')
+}
+
+export const parseProjectDraft = (body: unknown): ProjectDraft => {
     const input = asInput(body)
 
     return {
-        name: parseMemberName(input.name),
-        color: parseColor(input.color)
+        name: parseProjectName(input.name),
+        key: parseProjectKey(input.key),
+        description: parseProjectDescription(input.description)
     }
 }
 
-export const parseMemberPatch = (body: unknown): Partial<MemberDraft> => {
+export const parseProjectPatch = (body: unknown): Partial<ProjectDraft> => {
     const input = asInput(body)
-    const patch: Partial<MemberDraft> = {}
+    const patch: Partial<ProjectDraft> = {}
+
+    if (has(input, 'name')) patch.name = parseProjectName(input.name)
+    if (has(input, 'key')) patch.key = parseProjectKey(input.key)
+    if (has(input, 'description')) patch.description = parseProjectDescription(input.description)
+
+    if (Object.keys(patch).length === 0) throw new ValidationError('There is nothing to update.')
+
+    return patch
+}
+
+export const parseInvite = (body: unknown): InviteDraft => {
+    const input = asInput(body)
+    const email = normalizeEmail(input.email)
+
+    if (!email) throw new ValidationError('Enter a valid email address.')
+
+    return { email, role: parseInviteRole(input.role) }
+}
+
+export const parseMembershipPatch = (body: unknown): { role?: InviteDraft['role'], name?: string, email?: string } => {
+    const input = asInput(body)
+    const patch: { role?: InviteDraft['role'], name?: string, email?: string } = {}
+
+    if (has(input, 'role')) patch.role = parseInviteRole(input.role)
+    if (has(input, 'name')) patch.name = parseMemberName(input.name)
+
+    if (has(input, 'email')) {
+        const email = normalizeEmail(input.email)
+
+        if (!email) throw new ValidationError('Enter a valid email address.')
+
+        patch.email = email
+    }
+
+    if (Object.keys(patch).length === 0) throw new ValidationError('There is nothing to update.')
+
+    return patch
+}
+
+export const parseProfilePatch = (body: unknown): Partial<ProfileDraft> => {
+    const input = asInput(body)
+    const patch: Partial<ProfileDraft> = {}
 
     if (has(input, 'name')) patch.name = parseMemberName(input.name)
     if (has(input, 'color')) patch.color = parseColor(input.color)

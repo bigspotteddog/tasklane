@@ -28,16 +28,41 @@ export type IssueType = 'story' | 'task' | 'bug'
 
 export type IssuePriority = 'highest' | 'high' | 'medium' | 'low' | 'lowest'
 
+export type ProjectRole = 'owner' | 'admin' | 'member'
+
 export type Member = {
     id: string
     name: string
     color: string
+    email: string | null
     createdAt: string
     updatedAt: string
 }
 
+export type ProjectMember = Member & {
+    role: ProjectRole
+    joined: boolean
+}
+
+export type Project = {
+    id: string
+    name: string
+    key: string
+    description: string
+    createdAt: string
+    updatedAt: string
+}
+
+export type ProjectSummary = Project & {
+    role: ProjectRole
+    openIssues: number
+    totalIssues: number
+    memberCount: number
+}
+
 export type Issue = {
     id: string
+    projectId: string
     number: number
     title: string
     description: string
@@ -54,8 +79,10 @@ export type Issue = {
 }
 
 export type BoardData = {
+    project: Project
+    role: ProjectRole
     issues: Issue[]
-    members: Member[]
+    members: ProjectMember[]
 }
 
 export type IssueDraft = {
@@ -72,10 +99,23 @@ export type IssueDraft = {
 
 export type IssuePatch = Partial<Omit<IssueDraft, 'status'>>
 
-export type MemberDraft = {
+export type ProjectDraft = {
+    name: string
+    key: string
+    description: string
+}
+
+export type ProfileDraft = {
     name: string
     color: string
 }
+
+export type InviteDraft = {
+    email: string
+    role: Exclude<ProjectRole, 'owner'>
+}
+
+export type SignInState = 'ready' | 'setup' | 'closed'
 
 export type BoardFilters = {
     search: string

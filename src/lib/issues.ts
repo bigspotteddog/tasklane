@@ -5,14 +5,14 @@ import type {
     Member
 } from '@/types'
 
-import {
-    ISSUE_KEY_PREFIX,
-    POSITION_GAP,
-    STATUS_IDS,
-    UNASSIGNED
-} from '@/constants/board'
+import { POSITION_GAP, STATUS_IDS, UNASSIGNED } from '@/constants/board'
 
 export type ColumnMap<T> = Record<IssueStatus, T[]>
+
+export type ParsedIssueKey = {
+    projectKey: string
+    number: number
+}
 
 export const EMPTY_FILTERS: BoardFilters = {
     search: '',
@@ -21,15 +21,16 @@ export const EMPTY_FILTERS: BoardFilters = {
     priorities: []
 }
 
-export const issueKey = (number: number): string => {
-    return `${ISSUE_KEY_PREFIX}-${number}`
+export const issueKey = (projectKey: string, number: number): string => {
+    return `${projectKey}-${number}`
 }
 
-export const parseIssueKey = (value: unknown): number | null => {
+export const parseIssueKey = (value: unknown): ParsedIssueKey | null => {
     if (typeof value !== 'string') return null
 
-    const match = value.trim().toUpperCase().match(new RegExp(`^${ISSUE_KEY_PREFIX}-(\\d+)$`))
-    return match ? Number(match[1]) : null
+    const match = value.trim().toUpperCase().match(/^([A-Z][A-Z0-9]{1,5})-(\d+)$/)
+
+    return match ? { projectKey: match[1], number: Number(match[2]) } : null
 }
 
 export const emptyColumns = <T>(): ColumnMap<T> => {
@@ -47,7 +48,7 @@ export const hasActiveFilters = (filters: BoardFilters): boolean => {
     return Boolean(filters.search.trim()) || filters.assignees.length > 0 || filters.types.length > 0 || filters.priorities.length > 0
 }
 
-export const matchesFilters = (issue: Issue, filters: BoardFilters, members: Map<string, Member>): boolean => {
+export const matchesFilters = (issue: Issue, filters: BoardFilters, members: Map<string, Member>, projectKey: string): boolean => {
     if (filters.types.length > 0 && !filters.types.includes(issue.type)) return false
     if (filters.priorities.length > 0 && !filters.priorities.includes(issue.priority)) return false
 
@@ -63,7 +64,7 @@ export const matchesFilters = (issue: Issue, filters: BoardFilters, members: Map
     const assigneeName = issue.assigneeId ? members.get(issue.assigneeId)?.name ?? '' : ''
     const haystack = [
         issue.title,
-        issueKey(issue.number),
+        issueKey(projectKey, issue.number),
         String(issue.number),
         assigneeName,
         ...issue.labels

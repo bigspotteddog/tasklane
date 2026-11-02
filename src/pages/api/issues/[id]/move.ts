@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
+import { requireViewer } from '@/server/auth'
 import { moveIssue } from '@/server/board'
 import { notFound, rejectMethod, sendError } from '@/server/http'
 import { parseId, parseMove } from '@/server/validate'
@@ -8,6 +9,10 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
     if (req.method !== 'POST') return rejectMethod(res, ['POST'])
 
     try {
+        const viewer = await requireViewer(req, res)
+
+        if (!viewer) return
+
         const id = parseId(req.query.id)
         const { status, afterId } = parseMove(req.body)
         const issue = await moveIssue(id, status, afterId)

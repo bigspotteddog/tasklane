@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { issueKey, provisionalPosition } from '@/lib/issues'
 import { BoardColumn } from '@/components/board/board-column'
 import { IssueCardOverlay } from '@/components/board/issue-card'
+import { useProjectKey } from '@/components/projects/project-context'
 
 import {
     DndContext,
@@ -89,6 +90,7 @@ export const Board: FC<BoardProps> = ({
     onQuickCreate,
     onDraggingChange
 }): ReactNode => {
+    const projectKey = useProjectKey()
     const baseIds = useMemo(() => toIds(columns), [columns])
 
     const issueById = useMemo(() => {
@@ -266,7 +268,7 @@ export const Board: FC<BoardProps> = ({
 
     const describe = (id: UniqueIdentifier): string => {
         const issue = issueById.get(String(id))
-        return issue ? issueKey(issue.number) : 'The issue'
+        return issue ? issueKey(projectKey, issue.number) : 'The issue'
     }
 
     const columnOf = (id: UniqueIdentifier): string => {

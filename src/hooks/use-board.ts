@@ -5,23 +5,27 @@ import type {
     IssuePatch,
     IssueStatus,
     Member,
-    MemberDraft
+    Project,
+    ProjectMember,
+    ProjectRole
 } from '@/types'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { apiRequest, errorMessage } from '@/lib/api'
+import { ApiError, apiRequest, errorMessage } from '@/lib/api'
 
 const REFRESH_INTERVAL = 30000
 const REFRESH_THROTTLE = 2000
 
 type IssueResponse = { issue: Issue }
 
-type MemberResponse = { member: Member }
-
 export const useBoard = (initial: BoardData) => {
+    const [project, setProject] = useState<Project>(initial.project)
+    const [role, setRole] = useState<ProjectRole>(initial.role)
     const [issues, setIssues] = useState<Issue[]>(initial.issues)
-    const [members, setMembers] = useState<Member[]>(initial.members)
+    const [members, setMembers] = useState<ProjectMember[]>(initial.members)
+
+    const base = `/api/projects/${initial.project.id}`
 
     const issuesRef = useRef(issues)
     const pending = useRef(0)
@@ -42,17 +46,22 @@ export const useBoard = (initial: BoardData) => {
         const startedAt = version.current
 
         try {
-            const data = await apiRequest<BoardData>('/api/board')
+            const data = await apiRequest<BoardData>(`${base}/board`)
 
             if (pending.current > 0 || paused.current || version.current !== startedAt) return
 
+            setProject(data.project)
+            setRole(data.role)
             setIssues(data.issues)
             setMembers(data.members)
         }
-        catch {
-            // Keep what is on screen. The next refresh tries again.
+        catch (error) {
+            if (error instanceof ApiError && error.status === 404) {
+                toast.error('You are no longer on this project.')
+                window.location.assign('/projects')
+            }
         }
-    }, [])
+    }, [base])
 
     const mutate = useCallback(async <T>(request: () => Promise<T>): Promise<T | null> => {
         pending.current += 1
@@ -99,15 +108,19 @@ export const useBoard = (initial: BoardData) => {
         paused.current = value
     }, [])
 
+    const applyMember = useCallback((member: Member) => {
+        setMembers((current) => current.map((item) => item.id === member.id ? { ...item, ...member } : item))
+    }, [])
+
     const createIssue = useCallback(async (draft: Partial<IssueDraft> & { title: string }): Promise<Issue | null> => {
-        const result = await mutate(() => apiRequest<IssueResponse>('/api/issues', { method: 'POST', body: draft }))
+        const result = await mutate(() => apiRequest<IssueResponse>(`${base}/issues`, { method: 'POST', body: draft }))
 
         if (!result) return null
 
         setIssues((current) => current.some((issue) => issue.id === result.issue.id) ? current : [...current, result.issue])
 
         return result.issue
-    }, [mutate])
+    }, [mutate, base])
 
     const updateIssue = useCallback(async (id: string, patch: IssuePatch): Promise<boolean> => {
         const before = issuesRef.current.find((issue) => issue.id === id)
@@ -115,7 +128,7 @@ export const useBoard = (initial: BoardData) => {
 
         setIssues((current) => current.map((issue) => issue.id === id ? { ...issue, ...patch } : issue))
 
-        const result = await mutate(() => apiRequest<IssueResponse>(`/api/issues/${id}`, { method: 'PATCH', body: patch }))
+        const result = await mutate(() => apiRequest<IssueResponse>(`${base}/issues/${id}`, { method: 'PATCH', body: patch }))
 
         if (!result) {
             if (before) {
@@ -133,7 +146,7 @@ export const useBoard = (initial: BoardData) => {
         }))
 
         return true
-    }, [mutate])
+    }, [mutate, base])
 
     const moveIssue = useCallback(async (id: string, status: IssueStatus, afterId: string | null, position: number): Promise<boolean> => {
         const before = issuesRef.current.find((issue) => issue.id === id)
@@ -145,7 +158,7 @@ export const useBoard = (initial: BoardData) => {
 
         setIssues((current) => current.map((issue) => issue.id === id ? { ...issue, status, position } : issue))
 
-        const result = await mutate(() => apiRequest<IssueResponse>(`/api/issues/${id}/move`, {
+        const result = await mutate(() => apiRequest<IssueResponse>(`${base}/issues/${id}/move`, {
             method: 'POST',
             body: { status, afterId }
         }))
@@ -167,64 +180,33 @@ export const useBoard = (initial: BoardData) => {
         }))
 
         return true
-    }, [mutate])
+    }, [mutate, base])
 
     const deleteIssue = useCallback(async (id: string): Promise<boolean> => {
         const before = issuesRef.current.find((issue) => issue.id === id)
 
         setIssues((current) => current.filter((issue) => issue.id !== id))
 
-        const result = await mutate(() => apiRequest<{ id: string }>(`/api/issues/${id}`, { method: 'DELETE' }))
+        const result = await mutate(() => apiRequest<{ id: string }>(`${base}/issues/${id}`, { method: 'DELETE' }))
 
         if (!result && before) {
             setIssues((current) => current.some((issue) => issue.id === id) ? current : [...current, before])
         }
 
         return Boolean(result)
-    }, [mutate])
-
-    const createMember = useCallback(async (draft: MemberDraft): Promise<Member | null> => {
-        const result = await mutate(() => apiRequest<MemberResponse>('/api/members', { method: 'POST', body: draft }))
-
-        if (!result) return null
-
-        setMembers((current) => current.some((member) => member.id === result.member.id) ? current : [...current, result.member])
-
-        return result.member
-    }, [mutate])
-
-    const updateMember = useCallback(async (id: string, patch: Partial<MemberDraft>): Promise<boolean> => {
-        setMembers((current) => current.map((member) => member.id === id ? { ...member, ...patch } : member))
-
-        const result = await mutate(() => apiRequest<MemberResponse>(`/api/members/${id}`, { method: 'PATCH', body: patch }))
-
-        if (!result) return false
-
-        setMembers((current) => current.map((member) => member.id === id ? result.member : member))
-
-        return true
-    }, [mutate])
-
-    const deleteMember = useCallback(async (id: string): Promise<boolean> => {
-        setMembers((current) => current.filter((member) => member.id !== id))
-        setIssues((current) => current.map((issue) => issue.assigneeId === id ? { ...issue, assigneeId: null } : issue))
-
-        const result = await mutate(() => apiRequest<{ id: string }>(`/api/members/${id}`, { method: 'DELETE' }))
-
-        return Boolean(result)
-    }, [mutate])
+    }, [mutate, base])
 
     return {
+        project,
+        role,
         issues,
         members,
         refresh,
         setPaused,
+        applyMember,
         createIssue,
         updateIssue,
         moveIssue,
-        deleteIssue,
-        createMember,
-        updateMember,
-        deleteMember
+        deleteIssue
     }
 }

@@ -1,9 +1,13 @@
 import type { FC, ReactNode } from 'react'
+import type { Member, Project, ProjectSummary } from '@/types'
 
 import Link from 'next/link'
-import { Plus, Users } from 'lucide-react'
+import { ArrowLeft, Plus, Settings } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Logo } from '@/components/generals/logo'
-import { Button } from '@/components/ui/button'
+import { AccountMenu } from '@/components/board/account-menu'
+import { ProjectSwitcher } from '@/components/projects/project-switcher'
+import { Button, buttonVariants } from '@/components/ui/button'
 
 import {
     Tooltip,
@@ -14,35 +18,58 @@ import {
 import { siteConfig } from '@/constants/site'
 
 interface AppHeaderProps {
+    viewer?: Member
+    projects?: ProjectSummary[]
+    project?: Project | null
+    settingsActive?: boolean
     onCreate?: () => void
-    onOpenTeam?: () => void
+    onViewerChange?: (member: Member) => void
 }
 
-export const AppHeader: FC<AppHeaderProps> = ({ onCreate, onOpenTeam }): ReactNode => {
+export const AppHeader: FC<AppHeaderProps> = ({
+    viewer,
+    projects,
+    project = null,
+    settingsActive = false,
+    onCreate,
+    onViewerChange
+}): ReactNode => {
     return (
-        <header id='site-header' className='z-20 flex h-14 shrink-0 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur sm:px-6'>
-            <Link href='/' className='flex items-center gap-2.5 rounded-lg focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none'>
+        <header id='site-header' className='z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/90 px-3 backdrop-blur sm:gap-3 sm:px-6'>
+            <Link href='/projects' className='flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none'>
                 <Logo className='size-7' />
 
-                <span className='font-heading text-lg font-bold tracking-tight text-foreground'>
+                <span className='hidden font-heading text-lg font-bold tracking-tight text-foreground sm:inline'>
                     {siteConfig.name}
                 </span>
             </Link>
 
-            {(onCreate || onOpenTeam) && (
-                <nav aria-label='Board actions' className='ml-auto flex items-center gap-2'>
-                    {onOpenTeam && (
-                        <Button variant='outline' onClick={onOpenTeam} className='bg-background'>
-                            <Users aria-hidden='true' />
-                            Team
-                        </Button>
+            {projects && (
+                <>
+                    <span className='h-6 w-px shrink-0 bg-border' aria-hidden='true' />
+                    <ProjectSwitcher projects={projects} current={project} />
+                </>
+            )}
+
+            {viewer && (
+                <nav aria-label='Project actions' className='ml-auto flex shrink-0 items-center gap-2'>
+                    {project && (
+                        <Link
+                            href={settingsActive ? `/projects/${project.key}` : `/projects/${project.key}/settings`}
+                            className={cn(buttonVariants({ variant: 'outline' }), 'bg-background')}
+                        >
+                            {settingsActive ? <ArrowLeft aria-hidden='true' /> : <Settings aria-hidden='true' />}
+                            <span className='hidden sm:inline'>{settingsActive ? 'Back to board' : 'Settings'}</span>
+                            <span className='sr-only sm:hidden'>{settingsActive ? 'Back to board' : 'Project settings'}</span>
+                        </Link>
                     )}
 
                     {onCreate && (
                         <Tooltip>
                             <TooltipTrigger render={<Button onClick={onCreate} />}>
                                 <Plus aria-hidden='true' />
-                                Create
+                                <span className='hidden sm:inline'>Create</span>
+                                <span className='sr-only sm:hidden'>Create issue</span>
                             </TooltipTrigger>
 
                             <TooltipContent>
@@ -51,6 +78,9 @@ export const AppHeader: FC<AppHeaderProps> = ({ onCreate, onOpenTeam }): ReactNo
                             </TooltipContent>
                         </Tooltip>
                     )}
+
+                    <span className='mx-1 hidden h-6 w-px bg-border sm:block' aria-hidden='true' />
+                    <AccountMenu viewer={viewer} onViewerChange={onViewerChange} />
                 </nav>
             )}
         </header>
