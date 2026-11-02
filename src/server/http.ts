@@ -40,6 +40,10 @@ export const sendError = (res: NextApiResponse, error: unknown, context: string)
         return res.status(400).json({ error: 'That teammate is no longer on the team. Pick someone else.' })
     }
 
+    if (/UNIQUE/i.test(message) && /projects\.key/i.test(message)) {
+        return res.status(400).json({ error: 'Another project already uses that key. Pick a different one.' })
+    }
+
     if (/UNIQUE/i.test(message) && /email/i.test(message)) {
         return res.status(400).json({ error: 'Another teammate already uses that email address.' })
     }

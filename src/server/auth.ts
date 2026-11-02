@@ -18,7 +18,8 @@ import {
 } from 'drizzle-orm'
 
 import { db } from '@/db/client'
-import { toMember } from '@/server/board'
+import { nameFromEmail, pickMemberColor, toMember } from '@/server/members'
+import { claimOwnerlessProjects } from '@/server/projects'
 import { HttpError, isCrossSite } from '@/server/http'
 import { normalizeEmail, ValidationError } from '@/server/validate'
 
@@ -28,8 +29,6 @@ import {
     members,
     timestampNow
 } from '@/db/schema'
-
-import { MEMBER_COLORS } from '@/constants/board'
 
 type CookieRequest = IncomingMessage & { cookies?: Partial<Record<string, string>> }
 
@@ -80,13 +79,6 @@ const header = (req: IncomingMessage, name: string): string | undefined => {
     const first = Array.isArray(value) ? value[0] : value
 
     return first?.split(',')[0]?.trim() || undefined
-}
-
-const nameFromEmail = (email: string): string => {
-    const words = email.split('@')[0].split(/[._+-]+/).filter(Boolean)
-    const name = words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-
-    return name.slice(0, 60) || 'New teammate'
 }
 
 export const safeNextPath = (value: unknown): string => {
@@ -144,6 +136,11 @@ const createSession = async (res: ServerResponse, memberId: string): Promise<voi
         tokenHash: hash(token),
         expiresAt: isoIn(SESSION_DAYS * DAY)
     })
+
+    await db
+        .update(members)
+        .set({ signedInAt: timestampNow })
+        .where(and(eq(members.id, memberId), isNull(members.signedInAt)))
 
     setSessionCookie(res, token, SESSION_DAYS * 86400)
 }
@@ -308,14 +305,16 @@ const resolveMember = async (request: LoginRequestRow): Promise<Member> => {
     if (existing) return toMember(existing)
 
     if (await getSignInState() !== 'setup') {
-        throw new HttpError('Sign-in is limited to people on the team. Ask a teammate to add your email.', 403)
+        throw new HttpError('Sign-in is limited to people invited to a project. Ask a project admin to invite you.', 403)
     }
 
     const [row] = await db.insert(members).values({
         name: nameFromEmail(request.email),
-        color: MEMBER_COLORS[0],
+        color: await pickMemberColor(),
         email: request.email
     }).returning()
+
+    await claimOwnerlessProjects(row.id)
 
     return toMember(row)
 }

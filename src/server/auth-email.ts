@@ -11,7 +11,7 @@ interface SignInEmail {
     link: string | null
 }
 
-const escapeHtml = (value: string): string => {
+export const escapeHtml = (value: string): string => {
     return value
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

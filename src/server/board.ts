@@ -1,13 +1,10 @@
 import type {
-    BoardData,
     Issue,
     IssueDraft,
     IssuePatch,
-    IssueStatus,
-    Member,
-    MemberDraft
+    IssueStatus
 } from '@/types'
-import type { IssueRow, MemberRow } from '@/db/schema'
+import type { IssueRow } from '@/db/schema'
 
 import {
     and,
@@ -18,9 +15,16 @@ import {
     ne,
     sql
 } from 'drizzle-orm'
+
 import { db } from '@/db/client'
-import { authSessions, issues, members, timestampNow } from '@/db/schema'
 import { cleanLabels } from '@/lib/labels'
+import { isProjectMember } from '@/server/projects'
+import { ValidationError } from '@/server/validate'
+
+import {
+    issues,
+    timestampNow
+} from '@/db/schema'
 
 import {
     ISSUE_TYPE_IDS,
@@ -50,6 +54,7 @@ const parseStoredLabels = (value: string | null): string[] => {
 const toIssue = (row: IssueRow): Issue => {
     return {
         id: String(row.id),
+        projectId: String(row.projectId),
         number: Number(row.number),
         title: row.title ?? '',
         description: row.description ?? '',
@@ -66,32 +71,30 @@ const toIssue = (row: IssueRow): Issue => {
     }
 }
 
-export const toMember = (row: MemberRow): Member => {
-    return {
-        id: String(row.id),
-        name: row.name ?? '',
-        color: /^#[0-9a-f]{6}$/i.test(row.color ?? '') ? row.color : '#475569',
-        email: row.email ? String(row.email) : null,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt
+const checkAssignee = async (projectId: string, assigneeId: string | null | undefined): Promise<void> => {
+    if (!assigneeId) return
+
+    if (!await isProjectMember(projectId, assigneeId)) {
+        throw new ValidationError('Pick someone who is on this project.')
     }
 }
 
-export const getBoard = async (): Promise<BoardData> => {
-    const [issueRows, memberRows] = await Promise.all([
-        db.select().from(issues).orderBy(asc(issues.position), asc(issues.number)),
-        db.select().from(members).orderBy(asc(members.createdAt), asc(members.name))
-    ])
+export const getProjectIssues = async (projectId: string): Promise<Issue[]> => {
+    const rows = await db
+        .select()
+        .from(issues)
+        .where(eq(issues.projectId, projectId))
+        .orderBy(asc(issues.position), asc(issues.number))
 
-    return {
-        issues: issueRows.map(toIssue),
-        members: memberRows.map(toMember)
-    }
+    return rows.map(toIssue)
 }
 
-export const createIssue = async (draft: IssueDraft): Promise<Issue> => {
+export const createIssue = async (projectId: string, draft: IssueDraft): Promise<Issue> => {
+    await checkAssignee(projectId, draft.assigneeId)
+
     const [row] = await db.insert(issues).values({
-        number: sql`(SELECT COALESCE(MAX(number), 0) + 1 FROM issues)`,
+        projectId,
+        number: sql`(SELECT COALESCE(MAX(number), 0) + 1 FROM issues WHERE project_id = ${projectId})`,
         title: draft.title,
         description: draft.description,
         status: draft.status,
@@ -101,13 +104,15 @@ export const createIssue = async (draft: IssueDraft): Promise<Issue> => {
         assigneeId: draft.assigneeId,
         labels: JSON.stringify(draft.labels),
         dueDate: draft.dueDate,
-        position: sql`(SELECT COALESCE(MAX(position), 0) + ${POSITION_GAP} FROM issues WHERE status = ${draft.status})`
+        position: sql`(SELECT COALESCE(MAX(position), 0) + ${POSITION_GAP} FROM issues WHERE project_id = ${projectId} AND status = ${draft.status})`
     }).returning()
 
     return toIssue(row)
 }
 
-export const updateIssue = async (id: string, patch: IssuePatch): Promise<Issue | null> => {
+export const updateIssue = async (projectId: string, id: string, patch: IssuePatch): Promise<Issue | null> => {
+    if (patch.assigneeId !== undefined) await checkAssignee(projectId, patch.assigneeId)
+
     const values: Partial<typeof issues.$inferInsert> = {}
 
     if (patch.title !== undefined) values.title = patch.title
@@ -122,31 +127,33 @@ export const updateIssue = async (id: string, patch: IssuePatch): Promise<Issue 
     const [row] = await db
         .update(issues)
         .set({ ...values, updatedAt: timestampNow })
-        .where(eq(issues.id, id))
+        .where(and(eq(issues.id, id), eq(issues.projectId, projectId)))
         .returning()
 
     return row ? toIssue(row) : null
 }
 
-const rebalanceColumn = async (status: IssueStatus): Promise<void> => {
+const rebalanceColumn = async (projectId: string, status: IssueStatus): Promise<void> => {
     await db.run(sql`
         UPDATE issues
         SET position = ranked.rank * ${POSITION_GAP}
         FROM (
             SELECT id, ROW_NUMBER() OVER (ORDER BY position, number) AS rank
             FROM issues
-            WHERE status = ${status}
+            WHERE project_id = ${projectId} AND status = ${status}
         ) AS ranked
         WHERE issues.id = ranked.id
     `)
 }
 
-const positionAfter = async (id: string, status: IssueStatus, afterId: string | null, attempt = 0): Promise<number> => {
+const inColumn = (projectId: string, status: IssueStatus) => and(eq(issues.projectId, projectId), eq(issues.status, status))
+
+const positionAfter = async (projectId: string, id: string, status: IssueStatus, afterId: string | null, attempt = 0): Promise<number> => {
     if (!afterId || afterId === id) {
         const first = await db
             .select({ value: min(issues.position) })
             .from(issues)
-            .where(and(eq(issues.status, status), ne(issues.id, id)))
+            .where(and(inColumn(projectId, status), ne(issues.id, id)))
             .get()
 
         return first?.value === null || first?.value === undefined ? POSITION_GAP : Number(first.value) - POSITION_GAP
@@ -155,15 +162,15 @@ const positionAfter = async (id: string, status: IssueStatus, afterId: string | 
     const anchor = await db
         .select({ position: issues.position })
         .from(issues)
-        .where(and(eq(issues.id, afterId), eq(issues.status, status)))
+        .where(and(inColumn(projectId, status), eq(issues.id, afterId)))
         .get()
 
-    if (!anchor) return positionAfter(id, status, null, attempt)
+    if (!anchor) return positionAfter(projectId, id, status, null, attempt)
 
     const next = await db
         .select({ value: min(issues.position) })
         .from(issues)
-        .where(and(eq(issues.status, status), ne(issues.id, id), gt(issues.position, anchor.position)))
+        .where(and(inColumn(projectId, status), ne(issues.id, id), gt(issues.position, anchor.position)))
         .get()
 
     const anchorPosition = Number(anchor.position)
@@ -176,66 +183,36 @@ const positionAfter = async (id: string, status: IssueStatus, afterId: string | 
         return (anchorPosition + nextPosition) / 2
     }
 
-    await rebalanceColumn(status)
+    await rebalanceColumn(projectId, status)
 
-    return positionAfter(id, status, afterId, attempt + 1)
+    return positionAfter(projectId, id, status, afterId, attempt + 1)
 }
 
-export const moveIssue = async (id: string, status: IssueStatus, afterId: string | null): Promise<Issue | null> => {
-    const existing = await db.select({ id: issues.id }).from(issues).where(eq(issues.id, id)).get()
+export const moveIssue = async (projectId: string, id: string, status: IssueStatus, afterId: string | null): Promise<Issue | null> => {
+    const existing = await db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(and(eq(issues.id, id), eq(issues.projectId, projectId)))
+        .get()
 
     if (!existing) return null
 
-    const position = await positionAfter(id, status, afterId)
+    const position = await positionAfter(projectId, id, status, afterId)
 
     const [row] = await db
         .update(issues)
         .set({ status, position, updatedAt: timestampNow })
-        .where(eq(issues.id, id))
+        .where(and(eq(issues.id, id), eq(issues.projectId, projectId)))
         .returning()
 
     return row ? toIssue(row) : null
 }
 
-export const deleteIssue = async (id: string): Promise<boolean> => {
-    const deleted = await db.delete(issues).where(eq(issues.id, id)).returning({ id: issues.id })
+export const deleteIssue = async (projectId: string, id: string): Promise<boolean> => {
+    const deleted = await db
+        .delete(issues)
+        .where(and(eq(issues.id, id), eq(issues.projectId, projectId)))
+        .returning({ id: issues.id })
+
     return deleted.length > 0
-}
-
-export const createMember = async (draft: MemberDraft): Promise<Member> => {
-    const [row] = await db.insert(members).values({ name: draft.name, color: draft.color, email: draft.email }).returning()
-    return toMember(row)
-}
-
-export const updateMember = async (id: string, patch: Partial<MemberDraft>, viewerId: string): Promise<Member | null> => {
-    const existing = await db.select({ email: members.email }).from(members).where(eq(members.id, id)).get()
-
-    if (!existing) return null
-
-    const [row] = await db
-        .update(members)
-        .set({ ...patch, updatedAt: timestampNow })
-        .where(eq(members.id, id))
-        .returning()
-
-    const emailChanged = patch.email !== undefined && patch.email !== (existing.email ?? null)
-
-    if (row && emailChanged && id !== viewerId) {
-        await db.delete(authSessions).where(eq(authSessions.memberId, id))
-    }
-
-    return row ? toMember(row) : null
-}
-
-export const deleteMember = async (id: string): Promise<boolean> => {
-    const existing = await db.select({ id: members.id }).from(members).where(eq(members.id, id)).get()
-
-    if (!existing) return false
-
-    await db.batch([
-        db.update(issues).set({ assigneeId: null, updatedAt: timestampNow }).where(eq(issues.assigneeId, id)),
-        db.delete(members).where(eq(members.id, id))
-    ])
-
-    return true
 }
