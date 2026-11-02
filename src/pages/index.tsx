@@ -1,19 +1,12 @@
 import type { FC, ReactNode } from 'react'
 import type { GetServerSideProps } from 'next'
-import type { BoardData, Member } from '@/types'
 
-import { Seo } from '@/components/generals/seo'
-import { BoardApp } from '@/components/board/board-app'
 import { BoardUnavailable } from '@/components/board/board-unavailable'
 import { getViewer } from '@/server/auth'
-import { getBoard } from '@/server/board'
+import { defaultProjectFor, getAccessByKey } from '@/server/projects'
+import { parseIssueKey } from '@/lib/issues'
 
-interface HomeProps {
-    board: BoardData | null
-    viewer: Member | null
-}
-
-export const getServerSideProps: GetServerSideProps<HomeProps> = async (context) => {
+export const getServerSideProps: GetServerSideProps = async (context) => {
     try {
         const viewer = await getViewer(context.req, context.res)
 
@@ -22,24 +15,29 @@ export const getServerSideProps: GetServerSideProps<HomeProps> = async (context)
             return { redirect: { destination: `/sign-in${next}`, permanent: false } }
         }
 
-        const board = await getBoard()
+        const linked = parseIssueKey(context.query.issue)
 
-        return { props: { board, viewer } }
+        if (linked) {
+            const access = await getAccessByKey(linked.projectKey, viewer.id)
+
+            if (access) {
+                const issue = encodeURIComponent(`${access.project.key}-${linked.number}`)
+                return { redirect: { destination: `/projects/${access.project.key}?issue=${issue}`, permanent: false } }
+            }
+        }
+
+        const project = await defaultProjectFor(viewer.id)
+
+        return { redirect: { destination: project ? `/projects/${project.key}` : '/projects', permanent: false } }
     }
     catch (error) {
-        console.error(`[board] The board could not be loaded: ${error instanceof Error ? error.message : String(error)}`)
-        return { props: { board: null, viewer: null } }
+        console.error(`[projects] The start page could not pick a project: ${error instanceof Error ? error.message : String(error)}`)
+        return { props: {} }
     }
 }
 
-const Home: FC<HomeProps> = ({ board, viewer }): ReactNode => {
-    return (
-        <>
-            <Seo />
-
-            {board && viewer ? <BoardApp initialBoard={board} viewer={viewer} /> : <BoardUnavailable />}
-        </>
-    )
+const Home: FC = (): ReactNode => {
+    return <BoardUnavailable />
 }
 
 export default Home

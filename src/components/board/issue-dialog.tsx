@@ -13,6 +13,7 @@ import { copyText } from '@/lib/clipboard'
 import { formatTimestamp, issueKey } from '@/lib/issues'
 import { IssueKey } from '@/components/board/issue-key'
 import { IssueTypeIcon } from '@/components/board/issue-type-icon'
+import { useProjectKey } from '@/components/projects/project-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -74,7 +75,8 @@ const IssueDetails: FC<IssueDetailsProps> = ({
     onDelete,
     flushRef
 }): ReactNode => {
-    const key = issueKey(issue.number)
+    const projectKey = useProjectKey()
+    const key = issueKey(projectKey, issue.number)
 
     const [title, setTitle] = useState(issue.title)
     const [description, setDescription] = useState(issue.description)

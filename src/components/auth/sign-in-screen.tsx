@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 interface SignInScreenProps {
     state: SignInState
     next: string
+    initialEmail: string
 }
 
 type RequestResponse = {
@@ -24,8 +25,8 @@ type Pending = RequestResponse
 
 const RESEND_SECONDS = 60
 
-export const SignInScreen: FC<SignInScreenProps> = ({ state, next }): ReactNode => {
-    const [email, setEmail] = useState('')
+export const SignInScreen: FC<SignInScreenProps> = ({ state, next, initialEmail }): ReactNode => {
+    const [email, setEmail] = useState(initialEmail)
     const [pending, setPending] = useState<Pending | null>(null)
     const [code, setCode] = useState('')
     const [error, setError] = useState<string | null>(null)
@@ -209,7 +210,7 @@ export const SignInScreen: FC<SignInScreenProps> = ({ state, next }): ReactNode 
 
                 {state === 'setup' && (
                     <p className='rounded-lg bg-accent px-3 py-2.5 text-xs leading-relaxed text-accent-foreground'>
-                        You are the first one here. The email you enter becomes the first teammate on this board, and you can add the rest of the team from Team.
+                        You are the first one here. The email you enter becomes the owner of the existing projects, and you can invite the rest of the team from project settings.
                     </p>
                 )}
 
@@ -252,7 +253,7 @@ export const SignInScreen: FC<SignInScreenProps> = ({ state, next }): ReactNode 
                 </Button>
 
                 <p className='text-xs leading-relaxed text-muted-foreground'>
-                    Only people on the team can sign in. Not on it yet? Ask a teammate to add your email under Team.
+                    Only people invited to a project can sign in. Not invited yet? Ask a project admin to invite your email address.
                 </p>
             </form>
         </AuthShell>

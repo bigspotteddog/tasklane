@@ -2,10 +2,12 @@ import type { FC, ReactNode } from 'react'
 import type { Member } from '@/types'
 
 import { useState } from 'react'
-import { LogOut, Users } from 'lucide-react'
+import Link from 'next/link'
+import { LayoutGrid, LogOut, UserCog } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiRequest, errorMessage } from '@/lib/api'
 import { MemberAvatar } from '@/components/board/member-avatar'
+import { ProfileDialog } from '@/components/projects/profile-dialog'
 
 import {
     DropdownMenu,
@@ -19,11 +21,12 @@ import {
 
 interface AccountMenuProps {
     viewer: Member
-    onOpenTeam?: () => void
+    onViewerChange?: (member: Member) => void
 }
 
-export const AccountMenu: FC<AccountMenuProps> = ({ viewer, onOpenTeam }): ReactNode => {
+export const AccountMenu: FC<AccountMenuProps> = ({ viewer, onViewerChange }): ReactNode => {
     const [signingOut, setSigningOut] = useState(false)
+    const [profileOpen, setProfileOpen] = useState(false)
 
     const signOut = async () => {
         if (signingOut) return
@@ -41,52 +44,66 @@ export const AccountMenu: FC<AccountMenuProps> = ({ viewer, onOpenTeam }): React
     }
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                render={(
-                    <button
-                        type='button'
-                        aria-label='Your account'
-                        className='rounded-full ring-2 ring-transparent transition focus-visible:ring-ring focus-visible:outline-none data-popup-open:ring-primary/40'
-                    />
-                )}
-            >
-                <MemberAvatar member={viewer} size='md' />
-            </DropdownMenuTrigger>
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={(
+                        <button
+                            type='button'
+                            aria-label='Your account'
+                            className='rounded-full ring-2 ring-transparent transition focus-visible:ring-ring focus-visible:outline-none data-popup-open:ring-primary/40'
+                        />
+                    )}
+                >
+                    <MemberAvatar member={viewer} size='md' />
+                </DropdownMenuTrigger>
 
-            <DropdownMenuContent align='end' className='w-64'>
-                <DropdownMenuGroup>
-                    <DropdownMenuLabel className='flex items-center gap-2.5 px-2 py-2'>
-                        <MemberAvatar member={viewer} size='md' />
+                <DropdownMenuContent align='end' className='w-64'>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel className='flex items-center gap-2.5 px-2 py-2'>
+                            <MemberAvatar member={viewer} size='md' />
 
-                        <span className='min-w-0'>
-                            <span className='block truncate text-sm font-semibold text-foreground' data-mdlfy-cms={`members:${viewer.id}:name`}>
-                                {viewer.name}
-                            </span>
-
-                            {viewer.email && (
-                                <span className='block truncate text-xs font-normal text-muted-foreground' data-mdlfy-cms={`members:${viewer.id}:email`}>
-                                    {viewer.email}
+                            <span className='min-w-0'>
+                                <span className='block truncate text-sm font-semibold text-foreground' data-mdlfy-cms={`members:${viewer.id}:name`}>
+                                    {viewer.name}
                                 </span>
-                            )}
-                        </span>
-                    </DropdownMenuLabel>
-                </DropdownMenuGroup>
 
-                <DropdownMenuSeparator />
+                                {viewer.email && (
+                                    <span className='block truncate text-xs font-normal text-muted-foreground' data-mdlfy-cms={`members:${viewer.id}:email`}>
+                                        {viewer.email}
+                                    </span>
+                                )}
+                            </span>
+                        </DropdownMenuLabel>
+                    </DropdownMenuGroup>
 
-                {onOpenTeam && (
-                    <DropdownMenuItem onClick={onOpenTeam}>
-                        <Users aria-hidden='true' />
-                        Team and access
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onClick={() => setProfileOpen(true)}>
+                        <UserCog aria-hidden='true' />
+                        Your profile
                     </DropdownMenuItem>
-                )}
 
-                <DropdownMenuItem onClick={signOut} disabled={signingOut}>
-                    <LogOut aria-hidden='true' />
-                    {signingOut ? 'Signing out' : 'Sign out'}
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+                    <DropdownMenuItem render={<Link href='/projects' />}>
+                        <LayoutGrid aria-hidden='true' />
+                        All projects
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onClick={signOut} disabled={signingOut}>
+                        <LogOut aria-hidden='true' />
+                        {signingOut ? 'Signing out' : 'Sign out'}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <ProfileDialog
+                open={profileOpen}
+                viewer={viewer}
+                onOpenChange={setProfileOpen}
+                onSaved={(member) => onViewerChange?.(member)}
+            />
+        </>
     )
 }

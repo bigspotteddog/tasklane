@@ -4,7 +4,8 @@ import type {
     BoardFilters,
     Issue,
     IssueStatus,
-    Member
+    Member,
+    ProjectSummary
 } from '@/types'
 import type { BoardStats } from '@/components/board/board-toolbar'
 
@@ -19,7 +20,7 @@ import { Board } from '@/components/board/board'
 import { BoardToolbar } from '@/components/board/board-toolbar'
 import { CreateIssueDialog } from '@/components/board/create-issue-dialog'
 import { IssueDialog } from '@/components/board/issue-dialog'
-import { TeamDialog } from '@/components/board/team-dialog'
+import { ProjectProvider } from '@/components/projects/project-context'
 
 import {
     EMPTY_FILTERS,
@@ -36,40 +37,46 @@ import { POSITION_GAP, STATUS_IDS } from '@/constants/board'
 interface BoardAppProps {
     initialBoard: BoardData
     viewer: Member
+    projects: ProjectSummary[]
 }
 
 const SHORTCUT_IGNORE = 'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
 
-export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewer }): ReactNode => {
+export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewer, projects }): ReactNode => {
     const router = useRouter()
     const today = useToday()
     const searchRef = useRef<HTMLInputElement>(null)
     const handledDeepLink = useRef(false)
 
     const {
+        project,
+        role,
         issues,
         members,
         setPaused,
+        applyMember,
         createIssue,
         updateIssue,
         moveIssue,
-        deleteIssue,
-        createMember,
-        updateMember,
-        deleteMember
+        deleteIssue
     } = useBoard(initialBoard)
 
+    const [viewerState, setViewerState] = useState<Member>(initialViewer)
     const [filters, setFilters] = useState<BoardFilters>(EMPTY_FILTERS)
     const [createOpen, setCreateOpen] = useState(false)
     const [createStatus, setCreateStatus] = useState<IssueStatus>('todo')
-    const [teamOpen, setTeamOpen] = useState(false)
     const [selectedId, setSelectedId] = useState<string | null>(null)
 
+    const projectKey = project.key
     const memberMap = useMemo(() => new Map(members.map((member) => [member.id, member])), [members])
-    const viewer = memberMap.get(initialViewer.id) ?? initialViewer
-    const visibleIssues = useMemo(() => issues.filter((issue) => matchesFilters(issue, filters, memberMap)), [issues, filters, memberMap])
+    const viewer = memberMap.get(viewerState.id) ?? viewerState
+    const visibleIssues = useMemo(() => issues.filter((issue) => matchesFilters(issue, filters, memberMap, projectKey)), [issues, filters, memberMap, projectKey])
     const columns = useMemo(() => groupByStatus(visibleIssues), [visibleIssues])
     const filtered = hasActiveFilters(filters)
+
+    const switcherProjects = useMemo(() => {
+        return projects.map((item) => item.id === project.id ? { ...item, name: project.name, key: project.key } : item)
+    }, [projects, project])
 
     const totals = useMemo(() => {
         const counts = STATUS_IDS.reduce((result, status) => {
@@ -113,8 +120,8 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
 
     const showIssue = useCallback((issue: Issue) => {
         setSelectedId(issue.id)
-        setIssueQuery(issueKey(issue.number))
-    }, [setIssueQuery])
+        setIssueQuery(issueKey(projectKey, issue.number))
+    }, [setIssueQuery, projectKey])
 
     const openIssue = useCallback((id: string) => {
         const issue = issues.find((item) => item.id === id)
@@ -131,6 +138,11 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
         setCreateOpen(true)
     }, [])
 
+    const handleViewerChange = useCallback((member: Member) => {
+        setViewerState(member)
+        applyMember(member)
+    }, [applyMember])
+
     useEffect(() => {
         if (handledDeepLink.current || !router.isReady) return
 
@@ -138,17 +150,19 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
 
         if (router.query.issue === undefined) return
 
-        const number = parseIssueKey(router.query.issue)
-        const match = number === null ? undefined : issues.find((issue) => issue.number === number)
+        const parsed = parseIssueKey(router.query.issue)
+        const match = parsed && parsed.projectKey === projectKey
+            ? issues.find((issue) => issue.number === parsed.number)
+            : undefined
 
         if (match) {
             setSelectedId(match.id)
             return
         }
 
-        toast.error('That issue could not be found. It may have been deleted.')
+        toast.error('That issue could not be found in this project. It may have been deleted.')
         setIssueQuery(null)
-    }, [router.isReady, router.query.issue, issues, setIssueQuery])
+    }, [router.isReady, router.query.issue, issues, projectKey, setIssueQuery])
 
     useEffect(() => {
         if (selectedId && !selectedIssue) closeIssue()
@@ -157,7 +171,7 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-            if (createOpen || teamOpen || selectedId) return
+            if (createOpen || selectedId) return
 
             const target = event.target instanceof Element ? event.target : null
 
@@ -176,7 +190,7 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
 
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [createOpen, teamOpen, selectedId, openCreate])
+    }, [createOpen, selectedId, openCreate])
 
     const handleMove = useCallback((id: string, status: IssueStatus, afterId: string | null, position: number) => {
         void moveIssue(id, status, afterId, position)
@@ -191,13 +205,13 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
     }, [issues, moveIssue])
 
     const announceHidden = useCallback((issue: Issue) => {
-        if (!matchesFilters(issue, filters, memberMap)) {
-            toast(`${issueKey(issue.number)} was created`, {
+        if (!matchesFilters(issue, filters, memberMap, projectKey)) {
+            toast(`${issueKey(projectKey, issue.number)} was created`, {
                 description: 'It is hidden by your current filters.',
                 action: { label: 'Clear filters', onClick: () => setFilters(EMPTY_FILTERS) }
             })
         }
-    }, [filters, memberMap])
+    }, [filters, memberMap, projectKey])
 
     const handleQuickCreate = useCallback(async (status: IssueStatus, title: string): Promise<boolean> => {
         const issue = await createIssue({ title, status })
@@ -208,68 +222,70 @@ export const BoardApp: FC<BoardAppProps> = ({ initialBoard, viewer: initialViewe
     }, [createIssue, announceHidden])
 
     const handleCreated = useCallback((issue: Issue) => {
-        if (!matchesFilters(issue, filters, memberMap)) {
+        if (!matchesFilters(issue, filters, memberMap, projectKey)) {
             announceHidden(issue)
             return
         }
 
-        toast.success(`${issueKey(issue.number)} was created`, {
+        toast.success(`${issueKey(projectKey, issue.number)} was created`, {
             action: { label: 'Open', onClick: () => showIssue(issue) }
         })
-    }, [filters, memberMap, announceHidden, showIssue])
+    }, [filters, memberMap, projectKey, announceHidden, showIssue])
 
     return (
-        <Layout header={<AppHeader viewer={viewer} onCreate={() => openCreate()} onOpenTeam={() => setTeamOpen(true)} />}>
-            <BoardToolbar
-                filters={filters}
-                members={members}
-                stats={stats}
-                searchRef={searchRef}
-                onFiltersChange={setFilters}
-            />
+        <ProjectProvider project={project} role={role}>
+            <Layout
+                header={(
+                    <AppHeader
+                        viewer={viewer}
+                        projects={switcherProjects}
+                        project={project}
+                        onCreate={() => openCreate()}
+                        onViewerChange={handleViewerChange}
+                    />
+                )}
+            >
+                <BoardToolbar
+                    project={project}
+                    filters={filters}
+                    members={members}
+                    stats={stats}
+                    searchRef={searchRef}
+                    onFiltersChange={setFilters}
+                />
 
-            <Board
-                columns={columns}
-                totals={totals}
-                memberMap={memberMap}
-                today={today}
-                filtered={filtered}
-                onOpen={openIssue}
-                onMove={handleMove}
-                onQuickCreate={handleQuickCreate}
-                onDraggingChange={setPaused}
-            />
+                <Board
+                    columns={columns}
+                    totals={totals}
+                    memberMap={memberMap}
+                    today={today}
+                    filtered={filtered}
+                    onOpen={openIssue}
+                    onMove={handleMove}
+                    onQuickCreate={handleQuickCreate}
+                    onDraggingChange={setPaused}
+                />
 
-            <CreateIssueDialog
-                open={createOpen}
-                defaultStatus={createStatus}
-                members={members}
-                labelSuggestions={labelSuggestions}
-                onOpenChange={setCreateOpen}
-                onCreate={createIssue}
-                onCreated={handleCreated}
-            />
+                <CreateIssueDialog
+                    open={createOpen}
+                    defaultStatus={createStatus}
+                    members={members}
+                    labelSuggestions={labelSuggestions}
+                    onOpenChange={setCreateOpen}
+                    onCreate={createIssue}
+                    onCreated={handleCreated}
+                />
 
-            <IssueDialog
-                issue={selectedIssue}
-                members={members}
-                labelSuggestions={labelSuggestions}
-                onClose={closeIssue}
-                onUpdate={updateIssue}
-                onStatusChange={handleStatusChange}
-                onDelete={deleteIssue}
-            />
-
-            <TeamDialog
-                open={teamOpen}
-                viewerId={viewer.id}
-                members={members}
-                issues={issues}
-                onOpenChange={setTeamOpen}
-                onCreate={createMember}
-                onUpdate={updateMember}
-                onDelete={deleteMember}
-            />
-        </Layout>
+                <IssueDialog
+                    issue={selectedIssue}
+                    members={members}
+                    labelSuggestions={labelSuggestions}
+                    onClose={closeIssue}
+                    onUpdate={updateIssue}
+                    onStatusChange={handleStatusChange}
+                    onDelete={deleteIssue}
+                />
+            </Layout>
+        </ProjectProvider>
     )
 }

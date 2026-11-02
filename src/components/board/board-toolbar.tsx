@@ -3,7 +3,8 @@ import type {
     BoardFilters,
     IssuePriority,
     IssueType,
-    Member
+    Member,
+    Project
 } from '@/types'
 
 import { ChevronDown, Search, X } from 'lucide-react'
@@ -40,6 +41,7 @@ export type BoardStats = {
 }
 
 interface BoardToolbarProps {
+    project: Project
     filters: BoardFilters
     members: Member[]
     stats: BoardStats
@@ -115,6 +117,7 @@ const FilterMenu = <T extends string>({
 }
 
 export const BoardToolbar: FC<BoardToolbarProps> = ({
+    project,
     filters,
     members,
     stats,
@@ -132,13 +135,25 @@ export const BoardToolbar: FC<BoardToolbarProps> = ({
         <div id='board-toolbar' className='flex shrink-0 flex-col gap-4 px-4 pt-5 pb-4 sm:px-6'>
             <div className='flex flex-wrap items-end justify-between gap-x-6 gap-y-3'>
                 <div className='min-w-0'>
-                    <h1 className='font-heading text-2xl font-bold tracking-tight text-foreground sm:text-[1.75rem]'>
+                    <p className='flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase'>
+                        <span className='font-mono'>{project.key}</span>
+                        <span aria-hidden='true'>/</span>
                         Board
+                    </p>
+
+                    <h1 className='mt-1 font-heading text-2xl font-bold tracking-tight text-foreground sm:text-[1.75rem]'>
+                        <span data-mdlfy-cms={`projects:${project.id}:name`}>{project.name}</span>
                     </h1>
 
-                    <p className='mt-0.5 text-sm text-muted-foreground'>
-                        Track every issue from backlog to done.
-                    </p>
+                    {project.description ? (
+                        <p className='mt-0.5 max-w-2xl text-sm text-muted-foreground' data-mdlfy-cms={`projects:${project.id}:description`}>
+                            {project.description}
+                        </p>
+                    ) : (
+                        <p className='mt-0.5 text-sm text-muted-foreground'>
+                            Track every issue from backlog to done.
+                        </p>
+                    )}
                 </div>
 
                 <div className='flex items-center gap-4'>

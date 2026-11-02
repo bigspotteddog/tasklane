@@ -72,11 +72,14 @@ If a user's request genuinely requires changing any of the protected entries, st
 ```
 src/
 ├── pages/          Next.js pages (_app, _document, index, 404, 500, ...)
-├── pages/api/      API routes (board, issues, members)
+├── pages/projects/ projects list, board (/projects/[key]) and settings (/projects/[key]/settings)
+├── pages/api/      API routes (auth, me, projects and everything under /api/projects/[projectId])
 ├── components/
 │   ├── ui/         shadcn-generated components
 │   ├── generals/   shared layout/utility components (layout, seo, logo)
-│   └── board/      the issue board: columns, cards, dialogs, filters
+│   ├── board/      the issue board: columns, cards, dialogs, filters, header
+│   ├── projects/   project switcher, create dialog, settings, profile, project context
+│   └── auth/       sign-in and link confirmation screens
 ├── db/             drizzle schema and the database client (server only)
 ├── server/         server-only queries, validation and API helpers
 ├── hooks/          client hooks (use-board keeps board state in sync)
@@ -89,27 +92,30 @@ public/             static assets
 
 ## Board App
 
-The site is Tasklane, a lightweight issue board. One page (`src/pages/index.tsx`) loads the board in `getServerSideProps` and hands it to `BoardApp`.
+The site is Tasklane, a lightweight issue tracker with multiple projects. `/` redirects to the viewer's last project (`members.last_project_id`), else their first one, else `/projects`. Each project's board lives at `/projects/[key]`, loaded in `getServerSideProps` and handed to `BoardApp`, which is keyed by project id so switching projects remounts it.
 
-- **Data:** two board tables, `issues` and `members` (plus `auth_sessions` and `auth_login_requests` for sign-in). Issue keys are `TL-<number>` (`ISSUE_KEY_PREFIX` in `src/constants/board.ts`); `number` is assigned on insert as `MAX(number) + 1`. `labels` is a JSON array of strings, `due_date` is `YYYY-MM-DD`, and `status`, `type` and `priority` are plain text validated against `src/constants/board.ts` (no CHECK constraints, so adding a column means adding a status there).
+- **Data:** `projects` (name, unique `key`, description), `project_members` (project, person, `role`, `invited_by`), `issues` (with `project_id`) and `members`, which holds people, signed in or not (plus `auth_sessions` and `auth_login_requests` for sign-in). Issue keys are `<project key>-<number>`; `number` is per project, assigned on insert as `MAX(number) + 1` within the project and unique on `(project_id, number)`. `labels` is a JSON array of strings, `due_date` is `YYYY-MM-DD`, and `status`, `type` and `priority` are plain text validated against `src/constants/board.ts` (no CHECK constraints, so adding a column means adding a status there).
+- **Roles:** `owner` (one per project, cannot be removed or demoted, the only one who can delete the project), `admin` (invites, changes roles, removes members, edits settings) and `member` (works on issues). `ROLES`, `ROLE_RANK` and `canManageProject()` live in `src/constants/board.ts`. Every project API route starts with `requireProject(req, res, minimumRole)` from `src/server/access.ts`, which answers 404 to anyone who is not on the project.
+- **Invites:** `POST /api/projects/[projectId]/members` with `{ email, role }` adds the person (creating their `members` row if the email is new) and sends an invite email (`src/server/invite-email.ts`), at most 20 invites per inviter per day. People without an email (older placeholders) can be given one by an admin, which invites them. Admins can never change the name or email of someone who has signed in; people change their own name and color through `PATCH /api/me`.
 - **Columns:** `STATUSES` in `src/constants/board.ts` is the single source for column order, labels and colors.
-- **Ordering:** `position` is a REAL. Moves go through `POST /api/issues/[id]/move` with `{ status, afterId }`; the server places the issue right after `afterId` (or at the top) and renumbers a column only when two positions get too close.
-- **Server code:** queries live in `src/server/board.ts`, input checks in `src/server/validate.ts`. API routes stay thin: parse, call, respond through `src/server/http.ts`.
-- **Client state:** `useBoard` applies every change optimistically, rolls back and shows a toast when a request fails, and refreshes from `/api/board` every 30 seconds and on window focus (paused while dragging or while a save is in flight).
-- **Deep links:** an open issue is reflected in the URL as `?issue=TL-12` with shallow routing.
+- **Ordering:** `position` is a REAL, ordered per project and column. Moves go through `POST /api/projects/[projectId]/issues/[issueId]/move` with `{ status, afterId }`; the server places the issue right after `afterId` (or at the top) and renumbers a column only when two positions get too close.
+- **Server code:** issue queries live in `src/server/board.ts`, projects and memberships in `src/server/projects.ts`, people in `src/server/members.ts`, input checks in `src/server/validate.ts`. API routes stay thin: parse, call, respond through `src/server/http.ts`. Assignees must be members of the issue's project.
+- **Client state:** `useBoard` applies every change optimistically, rolls back and shows a toast when a request fails, and refreshes from `/api/projects/[projectId]/board` every 30 seconds and on window focus (paused while dragging or while a save is in flight). A 404 there means the viewer was removed, so it sends them to `/projects`.
+- **Project context:** `ProjectProvider` (`src/components/projects/project-context.tsx`) wraps the board and settings; `IssueKey` and anything else that shows issue keys reads the prefix with `useProjectKey()`.
+- **Deep links:** an open issue is reflected in the URL as `?issue=TL-12` with shallow routing. Old `/?issue=TL-12` links redirect to the right project.
 - **Dates on cards:** anything that depends on today's date comes from `useToday()`, which is `null` during server render, so cards never cause hydration mismatches.
-- **Inline editing:** issue titles carry `data-mdlfy-cms="issues:<id>:title"`, member names `data-mdlfy-cms="members:<id>:name"` and member emails `data-mdlfy-cms="members:<id>:email"` wherever they render as visible text. Keep it on any new place that shows them.
+- **Inline editing:** project names and descriptions carry `data-mdlfy-cms="projects:<id>:name"` and `projects:<id>:description`, issue titles carry `data-mdlfy-cms="issues:<id>:title"`, member names `data-mdlfy-cms="members:<id>:name"` and member emails `data-mdlfy-cms="members:<id>:email"` wherever they render as visible text. Keep it on any new place that shows them.
 
 ## Sign-in (magic links)
 
-Only team members with an email on their `members` row can sign in. Everything lives in `src/server/auth.ts` (sessions, links, codes, limits) and `src/server/auth-email.ts` (the email, sent through `@/lib/modulify/email`).
+Anyone with an email on their `members` row can sign in, which in practice means people invited to a project; they then see only the projects they belong to. Everything lives in `src/server/auth.ts` (sessions, links, codes, limits) and `src/server/auth-email.ts` (the email, sent through `@/lib/modulify/email`).
 
 - **Flow:** `/sign-in` posts to `/api/auth/request`, which emails a one-time link (`/auth/verify?token=...`, confirmed with a button so mail scanners cannot use it up) plus a 6-digit code. Link and code both expire after 15 minutes and work once; a code allows 5 tries.
 - **Preview:** the editor preview only loads inside Modulify, so preview emails carry the code only. `isPreview` is `NODE_ENV !== 'production'`.
-- **First member:** while no member has an email, the first person to sign in from the preview becomes a member (state `setup`). On the live site that state is `closed`, so nobody can claim the board there.
+- **First member:** while no member has an email, the first person to sign in from the preview becomes the owner of every project that has no owner (state `setup`). On the live site that state is `closed`, so nobody can claim the projects there. `members.signed_in_at` is set on the first sign-in and drives the "Invited" badge.
 - **Sessions:** `auth_sessions` stores a SHA-256 hash of a random token; the browser holds the token in the HttpOnly cookie `tasklane_session` for 30 days, renewed when under 20 days remain. The preview cookie is `SameSite=None; Secure; Partitioned` because the preview runs in a frame; the live site uses `SameSite=Lax; Secure`.
 - **Protection:** pages call `getViewer()` in `getServerSideProps` and redirect to `/sign-in?next=...`; every API route starts with `requireViewer()`, which answers 401 and blocks cross-site writes. `apiRequest` sends the browser to sign-in on a 401. Validate any redirect target with `safeNextPath()`.
-- **Limits:** one email per address per minute, 5 per address and 12 per device per hour. Changing or clearing a teammate's email, or removing them, signs them out. Nobody can remove themselves or clear their own email.
+- **Limits:** one email per address per minute, 5 per address and 12 per device per hour. Removing someone from a project unassigns their issues there; a placeholder with no email and no projects left is deleted. The owner cannot leave or be removed.
 - **Link origin:** built from the `Host` header (falling back to `X-Forwarded-Host` only when `Host` looks internal), never from anything in the request body.
 
 ## Imports
