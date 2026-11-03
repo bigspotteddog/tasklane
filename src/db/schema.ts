@@ -98,6 +98,32 @@ export const authLoginRequests = sqliteTable('auth_login_requests', {
     index('auth_login_requests_client_idx').on(table.clientHash, table.createdAt)
 ])
 
+export const issueComments = sqliteTable('issue_comments', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    issueId: text('issue_id').notNull().references(() => issues.id, { onDelete: 'cascade' }),
+    authorId: text('author_id').notNull().references(() => members.id, { onDelete: 'cascade' }),
+    body: text('body').notNull(),
+    createdAt: text('created_at').notNull().default(timestampNow),
+    updatedAt: text('updated_at').notNull().default(timestampNow)
+}, (table) => [
+    index('issue_comments_issue_created_idx').on(table.issueId, table.createdAt),
+    index('issue_comments_project_idx').on(table.projectId)
+])
+
+export const issueActivity = sqliteTable('issue_activity', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+    issueId: text('issue_id').notNull().references(() => issues.id, { onDelete: 'cascade' }),
+    actorId: text('actor_id').references(() => members.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    detail: text('detail').notNull().default('{}'),
+    createdAt: text('created_at').notNull().default(timestampNow)
+}, (table) => [
+    index('issue_activity_issue_created_idx').on(table.issueId, table.createdAt),
+    index('issue_activity_project_idx').on(table.projectId)
+])
+
 export type MemberRow = typeof members.$inferSelect
 
 export type ProjectRow = typeof projects.$inferSelect
@@ -105,3 +131,7 @@ export type ProjectRow = typeof projects.$inferSelect
 export type IssueRow = typeof issues.$inferSelect
 
 export type LoginRequestRow = typeof authLoginRequests.$inferSelect
+
+export type CommentRow = typeof issueComments.$inferSelect
+
+export type ActivityRow = typeof issueActivity.$inferSelect

@@ -18,7 +18,8 @@ export const LIMITS = {
     points: 100,
     projectName: 60,
     projectDescription: 280,
-    invitesPerDay: 20
+    invitesPerDay: 20,
+    comment: 5000
 }
 
 export const PROJECT_KEY_PATTERN = /^[A-Z][A-Z0-9]{1,5}$/

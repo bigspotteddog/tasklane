@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import { requireProject } from '@/server/access'
 import { createIssue } from '@/server/board'
+import { recordActivity } from '@/server/activity'
 import { rejectMethod, sendError } from '@/server/http'
 import { parseIssueDraft } from '@/server/validate'
 
@@ -15,6 +16,8 @@ const handler = async (req: NextApiRequest, res: NextApiResponse) => {
 
         const draft = parseIssueDraft(req.body)
         const issue = await createIssue(access.project.id, draft)
+
+        await recordActivity(access.project.id, issue.id, access.viewer.id, 'created')
 
         return res.status(201).json({ issue })
     }

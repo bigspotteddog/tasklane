@@ -123,3 +123,32 @@ export type BoardFilters = {
     types: IssueType[]
     priorities: IssuePriority[]
 }
+
+export type ActivityAction = 'created' | 'status' | 'assignee' | 'priority' | 'due_date'
+
+export type Person = {
+    id: string
+    name: string
+    color: string
+}
+
+export type Comment = {
+    id: string
+    issueId: string
+    projectId: string
+    authorId: string
+    author: Person
+    body: string
+    createdAt: string
+    updatedAt: string
+}
+
+export type ActivityEntry = {
+    id: string
+    issueId: string
+    projectId: string
+    actor: Person | null
+    action: ActivityAction
+    detail: { from: string | null, to: string | null }
+    createdAt: string
+}
